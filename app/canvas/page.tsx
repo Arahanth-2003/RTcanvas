@@ -1,21 +1,24 @@
 "use client";
 
 import { useEffect, useRef, useState, MouseEvent } from "react";
-import io, { Socket } from "socket.io-client";
+import { Socket } from "socket.io-client";
+import io from "socket.io-client";
 
-let socket: Socket | undefined;
+let socket: any;
 
 const Canvas = () => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [isDrawing, setIsDrawing] = useState(false);
   const [lastPos, setLastPos] = useState<{ x: number; y: number } | null>(null);
+  const [color, setColor] = useState("#000"); // Default color
+  const [lineWidth, setLineWidth] = useState(5); // Default line width
 
   useEffect(() => {
     // Connect to the Socket.IO server
-    socket = io("/api/socket"); // Adjust this to your socket endpoint
+    socket = io("http://localhost:4000"); // Adjust this to your socket endpoint
 
     // Listen for draw events from other clients
-    socket.on("draw", (data) => {
+    socket.on("draw", (data:any) => {
       const canvas = canvasRef.current;
       const context = canvas?.getContext("2d");
 
@@ -30,8 +33,38 @@ const Canvas = () => {
       context.stroke();
     });
 
+    // Load the entire drawing history for a new user
+    socket.on('load-drawing-history', (history:any) => {
+      const canvas = canvasRef.current;
+      const context = canvas?.getContext("2d");
+
+      if (!context) return;
+
+      // Render each drawing from history
+      history.forEach((data:any) => {
+        context.strokeStyle = data.color;
+        context.lineWidth = data.lineWidth;
+        context.beginPath();
+        context.moveTo(data.x0, data.y0);
+        context.lineTo(data.x1, data.y1);
+        context.stroke();
+      });
+    });
+
+    // Listen for the clear canvas event
+    socket.on("clear-canvas", () => {
+      const canvas = canvasRef.current;
+      const context = canvas?.getContext("2d");
+
+      if (context && canvas) {
+        context.clearRect(0, 0, canvas.width, canvas.height); // Clear the canvas
+      }
+    });
+
     return () => {
-      socket?.off("draw"); // Clean up the listener on component unmount
+      socket?.off("draw");
+      socket?.off("load-drawing-history");
+      socket?.off("clear-canvas"); // Clean up the clear canvas listener
     };
   }, []);
 
@@ -50,7 +83,7 @@ const Canvas = () => {
     if (!isDrawing || !lastPos) return;
 
     const { offsetX, offsetY } = e.nativeEvent;
-    draw(lastPos.x, lastPos.y, offsetX, offsetY); // Corrected: Pass all four arguments
+    draw(lastPos.x, lastPos.y, offsetX, offsetY);
 
     // Update the last position to the new one
     setLastPos({ x: offsetX, y: offsetY });
@@ -63,8 +96,8 @@ const Canvas = () => {
     if (!context) return;
 
     // Set the drawing style
-    context.strokeStyle = "#000"; // Black color for now
-    context.lineWidth = 5;
+    context.strokeStyle = color; // Use selected color
+    context.lineWidth = lineWidth; // Use selected line width
 
     // Draw on the canvas
     context.beginPath();
@@ -74,12 +107,47 @@ const Canvas = () => {
 
     // Emit drawing data to other clients
     if (emit) {
-      socket?.emit("draw", { x0, y0, x1, y1, color: "#000", lineWidth: 5 });
+      socket?.emit("draw", { x0, y0, x1, y1, color, lineWidth });
     }
   };
 
+  const clearCanvas = () => {
+    const canvas = canvasRef.current;
+
+    if (!canvas) return;
+    const context = canvas.getContext("2d");
+
+    if (!context) return;
+
+    // Clear the canvas
+    context.clearRect(0, 0, canvas.width, canvas.height);
+
+    // Emit the clear event to the server
+    socket?.emit("clear");
+  };
+
+  // Change color handler
+  const handleColorChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    setColor(e.target.value);
+  };
+
+  // Change line width handler
+  const handleLineWidthChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
+    setLineWidth(Number(e.target.value));
+  };
+
   return (
-    <div className="flex justify-center items-center h-screen bg-gray-100">
+    <div className="flex flex-col justify-center items-center h-screen bg-gray-100">
+      <div className="flex space-x-4 mb-4">
+        <input type="color" value={color} onChange={handleColorChange} />
+        <select value={lineWidth} onChange={handleLineWidthChange}>
+          <option value={5}>5px</option>
+          <option value={10}>10px</option>
+          <option value={15}>15px</option>
+          <option value={20}>20px</option>
+        </select>
+        <button className="bg-slate-500" onClick={clearCanvas}>Clear Canvas</button>
+      </div>
       <canvas
         ref={canvasRef}
         onMouseDown={startDrawing}
