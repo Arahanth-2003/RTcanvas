@@ -18,9 +18,18 @@
       }
     ],
     "paths": {
-      "@/*": ["./*"]
+      "@/*": ["./*"],
+      "types/*": ["./types/*"] // Add this line for path mapping
     }
   },
-  "include": ["next-env.d.ts", "**/*.ts", "**/*.tsx", ".next/types/**/*.ts"],
+  "include": [
+    "next-env.d.ts",
+    "**/*.ts",
+    "**/*.tsx",
+    ".next/types/**/*.ts",
+    "app/api/socket/index.ts",
+    "app/canvas/page.tsx",
+    "types/**/*.d.ts" // Ensure this is included
+  ],
   "exclude": ["node_modules"]
 }
