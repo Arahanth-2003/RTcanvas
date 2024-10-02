@@ -11,27 +11,26 @@ const MultiCanvas = () => {
   const [isDrawing, setIsDrawing] = useState<{ [id: string]: boolean }>({});
   const [lastPos, setLastPos] = useState<{ [id: string]: { x: number; y: number } | null }>({});
   const [canvases, setCanvases] = useState<{ id: string }[]>([]); // To store list of canvases
+  const [canvasHistory, setCanvasHistory] = useState<{ [id: string]: any[] }>({}); // Store drawing history for canvases
 
   useEffect(() => {
     // Connect to the Socket.IO server
     socket = io("http://localhost:4000"); // Adjust this to your socket endpoint
-  
+
     // Load all canvases and their history when a new user joins
     socket.on("load-canvas-history", (canvasData: any) => {
+      // Initialize canvases and set their history
+      setCanvases((prevCanvases) => {
+        const newCanvases = canvasData.filter((canvas: any) => !prevCanvases.some(c => c.id === canvas.id));
+        return [...prevCanvases, ...newCanvases];
+      });
+
+      // Store canvas history for each canvas in a state variable
       canvasData.forEach((canvas: any) => {
-        setCanvases((prevCanvases) => [...prevCanvases, { id: canvas.id }]);
-        canvas.drawings.forEach((drawing: any) => {
-          const context = canvasRefs.current[canvas.id]?.getContext("2d");
-          if (context) {
-            console.log('Drawing:', drawing);
-            context.strokeStyle = drawing.color;
-            context.lineWidth = drawing.lineWidth;
-            context.beginPath();
-            context.moveTo(drawing.x0, drawing.y0);
-            context.lineTo(drawing.x1, drawing.y1);
-            context.stroke();
-          }
-        });
+        setCanvasHistory((prevHistory) => ({
+          ...prevHistory,
+          [canvas.id]: canvas.drawings || [],
+        }));
       });
     });
 
@@ -80,6 +79,25 @@ const MultiCanvas = () => {
       socket?.off("clear-canvas");
     };
   }, []);
+
+  // Apply the drawing history to the canvas once it is mounted
+  useEffect(() => {
+    Object.keys(canvasHistory).forEach((canvasId) => {
+      const context = canvasRefs.current[canvasId]?.getContext("2d");
+      const history = canvasHistory[canvasId];
+
+      if (context && history) {
+        history.forEach((drawing: any) => {
+          context.strokeStyle = drawing.color;
+          context.lineWidth = drawing.lineWidth;
+          context.beginPath();
+          context.moveTo(drawing.x0, drawing.y0);
+          context.lineTo(drawing.x1, drawing.y1);
+          context.stroke();
+        });
+      }
+    });
+  }, [canvases, canvasHistory]); // Run this effect whenever canvases or canvasHistory changes
 
   // Handle mouse down event
   const handleMouseDown = (e: MouseEvent<HTMLCanvasElement>, canvasId: string) => {
