@@ -3,29 +3,40 @@
 import { useEffect, useRef, useState, MouseEvent } from "react";
 import io from "socket.io-client";
 
-// Initialize the Socket.IO connection
 let socket: any;
 
-const MultiCanvas = () => {
+interface MultiCanvasProps {
+  canvasRoomId: string; // The room ID from the URL
+}
+
+const MultiCanvas = ({ canvasRoomId }: MultiCanvasProps) => {
+    console.log("Canvas Room ID:", canvasRoomId);  
   const canvasRefs = useRef<{ [id: string]: HTMLCanvasElement | null }>({});
   const [isDrawing, setIsDrawing] = useState<{ [id: string]: boolean }>({});
   const [lastPos, setLastPos] = useState<{ [id: string]: { x: number; y: number } | null }>({});
-  const [canvases, setCanvases] = useState<{ id: string }[]>([]); // To store list of canvases
-  const [canvasHistory, setCanvasHistory] = useState<{ [id: string]: any[] }>({}); // Store drawing history for canvases
+  const [canvases, setCanvases] = useState<{ id: string }[]>([]);
+  const [canvasHistory, setCanvasHistory] = useState<{ [id: string]: any[] }>({});
 
   useEffect(() => {
-    // Connect to the Socket.IO server
+    // Connect to the server
     socket = io("http://localhost:4000"); // Adjust this to your socket endpoint
+    console.log("Socket instance created");
+    
+    // Join the canvas room based on the URL
+    socket.on("connect", () => {
+        console.log("Connected to socket server"); // Log for debugging
+        socket.emit("join-room", canvasRoomId);
+      });
 
-    // Load all canvases and their history when a new user joins
-    socket.on("load-canvas-history", (canvasData: any) => {
-      // Initialize canvases and set their history
+    // Load all canvases and their history for the current room
+    socket.on("load-room-canvases", (canvasData: any) => {
+      console.log("Received canvas data:", canvasData);
       setCanvases((prevCanvases) => {
         const newCanvases = canvasData.filter((canvas: any) => !prevCanvases.some(c => c.id === canvas.id));
         return [...prevCanvases, ...newCanvases];
       });
 
-      // Store canvas history for each canvas in a state variable
+      // Initialize canvas history for each canvas
       canvasData.forEach((canvas: any) => {
         setCanvasHistory((prevHistory) => ({
           ...prevHistory,
@@ -34,18 +45,22 @@ const MultiCanvas = () => {
       });
     });
 
-    // Listen for new canvas creation and add it
+    // Listen for new canvas creation within the room
     socket.on("new-canvas", (newCanvas: any) => {
-      setCanvases((prevCanvases) => {
-        // Check if the new canvas already exists
-        if (!prevCanvases.some(c => c.id === newCanvas.id)) {
-          return [...prevCanvases, { id: newCanvas.id }];
-        }
-        return prevCanvases;
-      });
+        console.log("New canvas created:", newCanvas);
+        setCanvases((prevCanvases) => {
+          if (!prevCanvases.some(c => c.id === newCanvas.id)) {
+            setCanvasHistory((prevHistory) => ({
+              ...prevHistory,
+              [newCanvas.id]: [], // Initialize empty history
+            }));
+            return [...prevCanvases, { id: newCanvas.id }];
+          }
+          return prevCanvases;
+        });
     });
 
-    // Listen for draw events from other clients
+    // Listen for drawing events
     socket.on("draw", (data: any) => {
       const { canvasId, drawing } = data;
       const canvas = canvasRefs.current[canvasId];
@@ -59,6 +74,12 @@ const MultiCanvas = () => {
       context.moveTo(drawing.x0, drawing.y0);
       context.lineTo(drawing.x1, drawing.y1);
       context.stroke();
+
+      // Save the drawing to the local history as well
+      setCanvasHistory((prevHistory) => ({
+        ...prevHistory,
+        [canvasId]: [...(prevHistory[canvasId] || []), drawing],
+      }));
     });
 
     // Listen for clear canvas events
@@ -74,13 +95,17 @@ const MultiCanvas = () => {
 
     return () => {
       socket?.off("draw");
-      socket?.off("load-canvas-history");
       socket?.off("new-canvas");
       socket?.off("clear-canvas");
+      socket?.off("load-room-canvases");
     };
-  }, []);
+  }, [canvasRoomId]);
 
-  // Apply the drawing history to the canvas once it is mounted
+  useEffect(() => {
+    console.log("Current canvases:", canvases);
+  }, [canvases]);
+
+  // Apply the drawing history to each canvas when mounted
   useEffect(() => {
     Object.keys(canvasHistory).forEach((canvasId) => {
       const context = canvasRefs.current[canvasId]?.getContext("2d");
@@ -97,16 +122,15 @@ const MultiCanvas = () => {
         });
       }
     });
-  }, [canvases, canvasHistory]); // Run this effect whenever canvases or canvasHistory changes
+  }, [canvases, canvasHistory]);
 
-  // Handle mouse down event
+  // Handle drawing events
   const handleMouseDown = (e: MouseEvent<HTMLCanvasElement>, canvasId: string) => {
     const { offsetX, offsetY } = e.nativeEvent;
     setIsDrawing((prev) => ({ ...prev, [canvasId]: true }));
     setLastPos((prev) => ({ ...prev, [canvasId]: { x: offsetX, y: offsetY } }));
   };
 
-  // Handle mouse move event
   const handleMouseMove = (e: MouseEvent<HTMLCanvasElement>, canvasId: string) => {
     if (!isDrawing[canvasId] || !lastPos[canvasId]) return;
 
@@ -115,57 +139,47 @@ const MultiCanvas = () => {
     setLastPos((prev) => ({ ...prev, [canvasId]: { x: offsetX, y: offsetY } }));
   };
 
-  // Handle mouse up event
   const handleMouseUp = (e: MouseEvent<HTMLCanvasElement>, canvasId: string) => {
     setIsDrawing((prev) => ({ ...prev, [canvasId]: false }));
     setLastPos((prev) => ({ ...prev, [canvasId]: null }));
   };
 
-  // Draw on the canvas and emit the drawing event
   const draw = (x0: number, y0: number, x1: number, y1: number, canvasId: string, emit = true) => {
     const canvas = canvasRefs.current[canvasId];
     const context = canvas?.getContext("2d");
 
     if (!context) return;
 
-    // Set drawing styles
-    context.strokeStyle = "#000"; // Default color
-    context.lineWidth = 5; // Default line width
+    context.strokeStyle = "#000";
+    context.lineWidth = 5;
 
-    // Draw on the canvas
     context.beginPath();
     context.moveTo(x0, y0);
     context.lineTo(x1, y1);
     context.stroke();
 
-    // Emit the drawing event to other clients
     if (emit) {
       socket.emit("draw", {
         canvasId,
         drawing: { x0, y0, x1, y1, color: "#000", lineWidth: 5 },
+        roomId: canvasRoomId,
       });
     }
   };
 
-  // Clear the selected canvas
   const clearCanvas = (canvasId: string) => {
     const canvas = canvasRefs.current[canvasId];
+    const context = canvas?.getContext("2d");
 
-    if (!canvas) return;
-    const context = canvas.getContext("2d");
-
-    if (context) {
+    if (context && canvas) {
       context.clearRect(0, 0, canvas.width, canvas.height);
-
-      // Emit the clear event to the server
-      socket.emit("clear-canvas", { canvasId });
+      socket.emit("clear-canvas", { canvasId, roomId: canvasRoomId });
     }
   };
 
-  // Add a new canvas (Emit the request and rely on the server response to add the canvas)
   const addNewCanvas = () => {
     const newCanvasId = `canvas-${Date.now()}`;
-    socket.emit("new-canvas", { id: newCanvasId }); // Let the server add the new canvas
+    socket.emit("new-canvas", { roomId: canvasRoomId, id: newCanvasId });
   };
 
   return (
