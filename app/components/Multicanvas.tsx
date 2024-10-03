@@ -6,7 +6,7 @@ import io from "socket.io-client";
 let socket: any;
 
 interface MultiCanvasProps {
-  canvasRoomId: string; // The room ID from the URL
+  canvasRoomId: string;
 }
 
 const MultiCanvas = ({ canvasRoomId }: MultiCanvasProps) => {
@@ -63,18 +63,6 @@ const MultiCanvas = ({ canvasRoomId }: MultiCanvasProps) => {
     // Listen for drawing events
     socket.on("draw", (data: any) => {
       const { canvasId, drawing } = data;
-      const canvas = canvasRefs.current[canvasId];
-      const context = canvas?.getContext("2d");
-
-      if (!context) return;
-
-      context.strokeStyle = drawing.color;
-      context.lineWidth = drawing.lineWidth;
-      context.beginPath();
-      context.moveTo(drawing.x0, drawing.y0);
-      context.lineTo(drawing.x1, drawing.y1);
-      context.stroke();
-
       // Save the drawing to the local history as well
       setCanvasHistory((prevHistory) => ({
         ...prevHistory,
@@ -91,6 +79,10 @@ const MultiCanvas = ({ canvasRoomId }: MultiCanvasProps) => {
       if (context && canvas) {
         context.clearRect(0, 0, canvas.width, canvas.height);
       }
+      setCanvasHistory((prevHistory) => ({
+        ...prevHistory,
+        [canvasId]: [], // Clear the shared history
+      }));
     });
 
     return () => {
@@ -101,10 +93,6 @@ const MultiCanvas = ({ canvasRoomId }: MultiCanvasProps) => {
     };
   }, [canvasRoomId]);
 
-  useEffect(() => {
-    console.log("Current canvases:", canvases);
-  }, [canvases]);
-
   // Apply the drawing history to each canvas when mounted
   useEffect(() => {
     Object.keys(canvasHistory).forEach((canvasId) => {
@@ -113,8 +101,8 @@ const MultiCanvas = ({ canvasRoomId }: MultiCanvasProps) => {
 
       if (context && history) {
         history.forEach((drawing: any) => {
-          context.strokeStyle = drawing.color;
-          context.lineWidth = drawing.lineWidth;
+          context.strokeStyle = "#000";
+          context.lineWidth = 5;
           context.beginPath();
           context.moveTo(drawing.x0, drawing.y0);
           context.lineTo(drawing.x1, drawing.y1);
@@ -122,7 +110,7 @@ const MultiCanvas = ({ canvasRoomId }: MultiCanvasProps) => {
         });
       }
     });
-  }, [canvases, canvasHistory]);
+  }, [canvasHistory]);
 
   // Handle drawing events
   const handleMouseDown = (e: MouseEvent<HTMLCanvasElement>, canvasId: string) => {
@@ -173,6 +161,10 @@ const MultiCanvas = ({ canvasRoomId }: MultiCanvasProps) => {
 
     if (context && canvas) {
       context.clearRect(0, 0, canvas.width, canvas.height);
+      setCanvasHistory((prevHistory) => ({
+        ...prevHistory,
+        [canvasId]: [], // Clear the shared history
+      }));
       socket.emit("clear-canvas", { canvasId, roomId: canvasRoomId });
     }
   };
