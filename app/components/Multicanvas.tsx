@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState, MouseEvent } from "react";
+import { useEffect, useRef, useState, MouseEvent, ChangeEvent } from "react";
 import io from "socket.io-client";
 
 let socket: any;
@@ -10,33 +10,27 @@ interface MultiCanvasProps {
 }
 
 const MultiCanvas = ({ canvasRoomId }: MultiCanvasProps) => {
-    console.log("Canvas Room ID:", canvasRoomId);  
   const canvasRefs = useRef<{ [id: string]: HTMLCanvasElement | null }>({});
   const [isDrawing, setIsDrawing] = useState<{ [id: string]: boolean }>({});
   const [lastPos, setLastPos] = useState<{ [id: string]: { x: number; y: number } | null }>({});
   const [canvases, setCanvases] = useState<{ id: string }[]>([]);
   const [canvasHistory, setCanvasHistory] = useState<{ [id: string]: any[] }>({});
+  const [penColor, setPenColor] = useState<string>("#000000");
+  const [lineWidth, setLineWidth] = useState<number>(5);
 
   useEffect(() => {
-    // Connect to the server
-    socket = io("http://localhost:4000"); // Adjust this to your socket endpoint
-    console.log("Socket instance created");
-    
-    // Join the canvas room based on the URL
-    socket.on("connect", () => {
-        console.log("Connected to socket server"); // Log for debugging
-        socket.emit("join-room", canvasRoomId);
-      });
+    socket = io("http://localhost:4000");
 
-    // Load all canvases and their history for the current room
+    socket.on("connect", () => {
+      socket.emit("join-room", canvasRoomId);
+    });
+
     socket.on("load-room-canvases", (canvasData: any) => {
-      console.log("Received canvas data:", canvasData);
       setCanvases((prevCanvases) => {
-        const newCanvases = canvasData.filter((canvas: any) => !prevCanvases.some(c => c.id === canvas.id));
+        const newCanvases = canvasData.filter((canvas: any) => !prevCanvases.some((c) => c.id === canvas.id));
         return [...prevCanvases, ...newCanvases];
       });
 
-      // Initialize canvas history for each canvas
       canvasData.forEach((canvas: any) => {
         setCanvasHistory((prevHistory) => ({
           ...prevHistory,
@@ -45,55 +39,58 @@ const MultiCanvas = ({ canvasRoomId }: MultiCanvasProps) => {
       });
     });
 
-    // Listen for new canvas creation within the room
     socket.on("new-canvas", (newCanvas: any) => {
-        console.log("New canvas created:", newCanvas);
-        setCanvases((prevCanvases) => {
-          if (!prevCanvases.some(c => c.id === newCanvas.id)) {
-            setCanvasHistory((prevHistory) => ({
-              ...prevHistory,
-              [newCanvas.id]: [], // Initialize empty history
-            }));
-            return [...prevCanvases, { id: newCanvas.id }];
-          }
-          return prevCanvases;
-        });
+      setCanvases((prevCanvases) => {
+        if (!prevCanvases.some((c) => c.id === newCanvas.id)) {
+          setCanvasHistory((prevHistory) => ({
+            ...prevHistory,
+            [newCanvas.id]: [],
+          }));
+          return [...prevCanvases, { id: newCanvas.id }];
+        }
+        return prevCanvases;
+      });
     });
 
-    // Listen for drawing events
     socket.on("draw", (data: any) => {
       const { canvasId, drawing } = data;
-      // Save the drawing to the local history as well
       setCanvasHistory((prevHistory) => ({
         ...prevHistory,
         [canvasId]: [...(prevHistory[canvasId] || []), drawing],
       }));
     });
 
-    // Listen for clear canvas events
     socket.on("clear-canvas", (data: any) => {
       const { canvasId } = data;
       const canvas = canvasRefs.current[canvasId];
       const context = canvas?.getContext("2d");
-
       if (context && canvas) {
         context.clearRect(0, 0, canvas.width, canvas.height);
       }
       setCanvasHistory((prevHistory) => ({
         ...prevHistory,
-        [canvasId]: [], // Clear the shared history
+        [canvasId]: [],
       }));
+    });
+
+    socket.on("delete-canvas", (canvasId: string) => {
+      setCanvases((prevCanvases) => prevCanvases.filter((canvas) => canvas.id !== canvasId));
+      setCanvasHistory((prevHistory) => {
+        const updatedHistory = { ...prevHistory };
+        delete updatedHistory[canvasId];
+        return updatedHistory;
+      });
     });
 
     return () => {
       socket?.off("draw");
       socket?.off("new-canvas");
       socket?.off("clear-canvas");
+      socket?.off("delete-canvas");
       socket?.off("load-room-canvases");
     };
   }, [canvasRoomId]);
 
-  // Apply the drawing history to each canvas when mounted
   useEffect(() => {
     Object.keys(canvasHistory).forEach((canvasId) => {
       const context = canvasRefs.current[canvasId]?.getContext("2d");
@@ -101,8 +98,8 @@ const MultiCanvas = ({ canvasRoomId }: MultiCanvasProps) => {
 
       if (context && history) {
         history.forEach((drawing: any) => {
-          context.strokeStyle = "#000";
-          context.lineWidth = 5;
+          context.strokeStyle = drawing.color || "#000";
+          context.lineWidth = drawing.lineWidth || 5;
           context.beginPath();
           context.moveTo(drawing.x0, drawing.y0);
           context.lineTo(drawing.x1, drawing.y1);
@@ -112,7 +109,6 @@ const MultiCanvas = ({ canvasRoomId }: MultiCanvasProps) => {
     });
   }, [canvasHistory]);
 
-  // Handle drawing events
   const handleMouseDown = (e: MouseEvent<HTMLCanvasElement>, canvasId: string) => {
     const { offsetX, offsetY } = e.nativeEvent;
     setIsDrawing((prev) => ({ ...prev, [canvasId]: true }));
@@ -138,8 +134,8 @@ const MultiCanvas = ({ canvasRoomId }: MultiCanvasProps) => {
 
     if (!context) return;
 
-    context.strokeStyle = "#000";
-    context.lineWidth = 5;
+    context.strokeStyle = penColor;
+    context.lineWidth = lineWidth;
 
     context.beginPath();
     context.moveTo(x0, y0);
@@ -149,7 +145,7 @@ const MultiCanvas = ({ canvasRoomId }: MultiCanvasProps) => {
     if (emit) {
       socket.emit("draw", {
         canvasId,
-        drawing: { x0, y0, x1, y1, color: "#000", lineWidth: 5 },
+        drawing: { x0, y0, x1, y1, color: penColor, lineWidth },
         roomId: canvasRoomId,
       });
     }
@@ -163,10 +159,20 @@ const MultiCanvas = ({ canvasRoomId }: MultiCanvasProps) => {
       context.clearRect(0, 0, canvas.width, canvas.height);
       setCanvasHistory((prevHistory) => ({
         ...prevHistory,
-        [canvasId]: [], // Clear the shared history
+        [canvasId]: [],
       }));
       socket.emit("clear-canvas", { canvasId, roomId: canvasRoomId });
     }
+  };
+
+  const deleteCanvas = (canvasId: string) => {
+    setCanvases((prevCanvases) => prevCanvases.filter((canvas) => canvas.id !== canvasId));
+    setCanvasHistory((prevHistory) => {
+      const updatedHistory = { ...prevHistory };
+      delete updatedHistory[canvasId];
+      return updatedHistory;
+    });
+    socket.emit("delete-canvas", { canvasId, roomId: canvasRoomId });
   };
 
   const addNewCanvas = () => {
@@ -174,18 +180,53 @@ const MultiCanvas = ({ canvasRoomId }: MultiCanvasProps) => {
     socket.emit("new-canvas", { roomId: canvasRoomId, id: newCanvasId });
   };
 
-  return (
-    <div className="flex flex-col items-center">
-      <button onClick={addNewCanvas} className="fixed top-4 left-4 bg-blue-500 text-white px-4 py-2 rounded">
-        Add New Canvas
-      </button>
+  const handleColorChange = (e: ChangeEvent<HTMLInputElement>) => {
+    setPenColor(e.target.value);
+  };
 
-      <div className="mt-16 space-y-8">
+  const handleLineWidthChange = (e: ChangeEvent<HTMLInputElement>) => {
+    setLineWidth(parseInt(e.target.value, 10));
+  };
+
+  return (
+    <div className="flex flex-col items-center bg-gray-100 min-h-screen py-8">
+      <div className="fixed top-4 left-4 flex space-x-4 bg-white p-4 rounded-lg shadow-lg">
+        <button onClick={addNewCanvas} className="bg-blue-600 hover:bg-blue-700 text-white font-semibold px-4 py-2 rounded-lg transition">
+          Add Canvas
+        </button>
+        <div className="flex items-center space-x-2">
+          <label htmlFor="color-picker" className="text-gray-700 font-semibold">Color:</label>
+          <input
+            id="color-picker"
+            type="color"
+            value={penColor}
+            onChange={handleColorChange}
+            className="w-10 h-10 border border-gray-300 rounded-lg"
+          />
+        </div>
+        <div className="flex items-center space-x-2">
+          <label htmlFor="line-width" className="text-gray-700 font-semibold">Width:</label>
+          <input
+            id="line-width"
+            type="number"
+            min="1"
+            max="20"
+            value={lineWidth}
+            onChange={handleLineWidthChange}
+            className="w-16 px-2 py-1 border border-gray-300 rounded-lg"
+          />
+        </div>
+      </div>
+
+      <div className="mt-16 w-full max-w-5xl space-y-8">
         {canvases.map((canvas) => (
-          <div key={canvas.id}>
-            <div className="flex justify-center mb-2">
-              <button className="bg-red-500 text-white px-4 py-2 rounded" onClick={() => clearCanvas(canvas.id)}>
-                Clear Canvas {canvas.id}
+          <div key={canvas.id} className="p-4 bg-white rounded-lg shadow-lg">
+            <div className="flex justify-between mb-4">
+              <button className="bg-red-500 hover:bg-red-600 text-white font-semibold px-4 py-2 rounded-lg transition" onClick={() => clearCanvas(canvas.id)}>
+                Clear
+              </button>
+              <button className="bg-gray-500 hover:bg-gray-600 text-white font-semibold px-4 py-2 rounded-lg transition" onClick={() => deleteCanvas(canvas.id)}>
+                Delete
               </button>
             </div>
             <canvas
@@ -198,7 +239,7 @@ const MultiCanvas = ({ canvasRoomId }: MultiCanvasProps) => {
               onMouseLeave={(e) => handleMouseUp(e, canvas.id)}
               width={800}
               height={600}
-              className="border-2 border-black rounded-lg bg-white shadow-lg cursor-crosshair"
+              className="border-2 border-gray-300 rounded-lg bg-white shadow-md cursor-crosshair"
             />
           </div>
         ))}
