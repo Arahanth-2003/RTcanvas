@@ -15,6 +15,7 @@ const MultiCanvas = ({ canvasRoomId }: MultiCanvasProps) => {
   const [canvasHistory, setCanvasHistory] = useState<{ [id: string]: any[] }>({});
   const [penColor, setPenColor] = useState<string>("#000000");
   const [lineWidth, setLineWidth] = useState<number>(5);
+  const [eraserSize, setEraserSize] = useState<number>(30);
   const [isDrawing, setIsDrawing] = useState<{ [id: string]: boolean }>({});
   const [lastPos, setLastPos] = useState<{ [id: string]: { x: number; y: number } | null }>({});
   const [textAreas, setTextAreas] = useState<{ [id: string]: any[] }>({});
@@ -24,6 +25,8 @@ const MultiCanvas = ({ canvasRoomId }: MultiCanvasProps) => {
     offsetX: number;
     offsetY: number;
   } | null>(null);
+  const [eraserMode, setEraserMode] = useState(false);
+
 
   useEffect(() => {
     socket = io("http://localhost:4000");
@@ -70,12 +73,32 @@ const MultiCanvas = ({ canvasRoomId }: MultiCanvasProps) => {
     });
 
     socket.on("draw", (data: any) => {
-      const { canvasId, drawing } = data;
-      setCanvasHistory((prevHistory) => ({
-        ...prevHistory,
-        [canvasId]: [...(prevHistory[canvasId] || []), drawing],
-      }));
+      const { canvasId, drawing, eraserMode } = data;
+    
+      if (eraserMode) {
+        // Handle erasing in canvas history
+        setCanvasHistory((prevHistory) => {
+          const updatedHistory = { ...prevHistory };
+          updatedHistory[canvasId] = (updatedHistory[canvasId] || []).filter(
+            (line: any) =>
+              !(
+                (line.x1 >= drawing.x0 - drawing.lineWidth &&
+                  line.x1 <= drawing.x0 + drawing.lineWidth) &&
+                (line.y1 >= drawing.y0 - drawing.lineWidth &&
+                  line.y1 <= drawing.y0 + drawing.lineWidth)
+              )
+          );
+          return updatedHistory;
+        });
+      } else {
+        // Add the new drawing to the history
+        setCanvasHistory((prevHistory) => ({
+          ...prevHistory,
+          [canvasId]: [...(prevHistory[canvasId] || []), drawing],
+        }));
+      }
     });
+    
 
     socket.on("text-update", ({ canvasId, textAreas }: any) => {
       setTextAreas((prevAreas) => ({
@@ -160,42 +183,90 @@ const MultiCanvas = ({ canvasRoomId }: MultiCanvasProps) => {
     setIsDrawing((prev) => ({ ...prev, [canvasId]: true }));
     setLastPos((prev) => ({ ...prev, [canvasId]: { x: offsetX, y: offsetY } }));
   };
+  
 
   const handleMouseMove = (e: MouseEvent<HTMLCanvasElement>, canvasId: string) => {
+    const canvas = canvasRefs.current[canvasId];
+    if (!canvas) return;
+  
+    // Perform drawing/erasing only if the mouse button is pressed
     if (!isDrawing[canvasId] || !lastPos[canvasId]) return;
-
+  
     const { offsetX, offsetY } = e.nativeEvent;
     draw(lastPos[canvasId]!.x, lastPos[canvasId]!.y, offsetX, offsetY, canvasId);
     setLastPos((prev) => ({ ...prev, [canvasId]: { x: offsetX, y: offsetY } }));
   };
-
+  
   const handleMouseUp = (e: MouseEvent<HTMLCanvasElement>, canvasId: string) => {
     setIsDrawing((prev) => ({ ...prev, [canvasId]: false }));
     setLastPos((prev) => ({ ...prev, [canvasId]: null }));
   };
+  
+  
 
   const draw = (x0: number, y0: number, x1: number, y1: number, canvasId: string, emit = true) => {
     const canvas = canvasRefs.current[canvasId];
     const context = canvas?.getContext("2d");
-
+  
     if (!context) return;
-
-    context.strokeStyle = penColor;
-    context.lineWidth = lineWidth;
-
+  
+    if (eraserMode) {
+      // Use white to "erase" and update the canvas history
+      context.strokeStyle = "#FFFFFF"; // White background for erasing
+      context.lineWidth = eraserSize;
+  
+      // Update canvas history to reflect the erasing operation
+      setCanvasHistory((prevHistory) => {
+        const updatedHistory = { ...prevHistory };
+        updatedHistory[canvasId] = (updatedHistory[canvasId] || []).filter(
+          (drawing: any) => {
+            // Erase lines that intersect with the eraser's path
+            return !(
+              (drawing.x1 >= x0 - eraserSize && drawing.x1 <= x0 + eraserSize) &&
+              (drawing.y1 >= y0 - eraserSize && drawing.y1 <= y0 + eraserSize)
+            );
+          }
+        );
+        return updatedHistory;
+      });
+    } else {
+      // Regular drawing
+      context.strokeStyle = penColor;
+      context.lineWidth = lineWidth;
+  
+      // Add the new drawing path to the canvas history
+      setCanvasHistory((prevHistory) => {
+        const updatedHistory = { ...prevHistory };
+        updatedHistory[canvasId] = [
+          ...(updatedHistory[canvasId] || []),
+          { x0, y0, x1, y1, color: penColor, lineWidth },
+        ];
+        return updatedHistory;
+      });
+    }
+  
     context.beginPath();
     context.moveTo(x0, y0);
     context.lineTo(x1, y1);
     context.stroke();
-
+  
     if (emit) {
       socket.emit("draw", {
         canvasId,
-        drawing: { x0, y0, x1, y1, color: penColor, lineWidth },
+        drawing: {
+          x0,
+          y0,
+          x1,
+          y1,
+          color: eraserMode ? "#FFFFFF" : penColor,
+          lineWidth: eraserMode ? eraserSize : lineWidth,
+          eraserMode, // Include eraser mode for clarity
+        },
         roomId: canvasRoomId,
       });
     }
   };
+  
 
   const addTextArea = (canvasId: string) => {
     const newTextArea = {
@@ -274,6 +345,7 @@ const MultiCanvas = ({ canvasRoomId }: MultiCanvasProps) => {
   };
   
 
+
   const clearCanvas = (canvasId: string) => {
     const canvas = canvasRefs.current[canvasId];
     const context = canvas?.getContext("2d");
@@ -319,7 +391,7 @@ const MultiCanvas = ({ canvasRoomId }: MultiCanvasProps) => {
       onMouseUp={handleTextMouseUp}
     >
       {/* Control Panel */}
-      <div className="fixed top-4 left-4 flex space-x-4 bg-white p-4 rounded-lg shadow-lg">
+      <div className="fixed top-4 left-4 flex space-x-4 bg-white p-4 rounded-lg shadow-lg z-10">
         <button
           onClick={addNewCanvas}
           className="bg-blue-600 hover:bg-blue-700 text-white font-semibold px-4 py-2 rounded-lg transition"
@@ -336,6 +408,7 @@ const MultiCanvas = ({ canvasRoomId }: MultiCanvasProps) => {
             value={penColor}
             onChange={(e) => setPenColor(e.target.value)}
             className="w-10 h-10 border border-gray-300 rounded-lg"
+            disabled={eraserMode} // Disable color picker in eraser mode
           />
         </div>
         <div className="flex items-center space-x-2">
@@ -350,10 +423,38 @@ const MultiCanvas = ({ canvasRoomId }: MultiCanvasProps) => {
             value={lineWidth}
             onChange={(e) => setLineWidth(parseInt(e.target.value, 10))}
             className="w-16 px-2 py-1 border border-gray-300 rounded-lg"
+            disabled={eraserMode} // Disable width picker in eraser mode
           />
         </div>
+        <button
+          onClick={() => setEraserMode((prev) => !prev)}
+          className={`${
+            eraserMode ? "bg-red-600 hover:bg-red-700" : "bg-gray-600 hover:bg-gray-700"
+          } text-white font-semibold px-4 py-2 rounded-lg transition`}
+        >
+          {eraserMode ? "Disable Eraser" : "Enable Eraser"}
+        </button>
+        {!eraserMode && (
+          <input
+            type="number"
+            min="1"
+            max="50"
+            value={eraserSize}
+            onChange={(e) => setEraserSize(parseInt(e.target.value,30))}
+            className="w-16 px-2 py-1 border border-gray-300 rounded-lg"
+          />
+        )}
+        {eraserMode && (
+          <input
+            type="number"
+            min="1"
+            max="50"
+            value={eraserSize}
+            onChange={(e) => setEraserSize(parseInt(e.target.value,30))}
+            className="w-16 px-2 py-1 border border-gray-300 rounded-lg"
+          />
+        )}
       </div>
-  
       {/* Canvases */}
       <div className="mt-16 w-full max-w-5xl space-y-8">
         {canvases.map((canvas) => (
