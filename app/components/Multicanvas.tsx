@@ -101,6 +101,18 @@ const MultiCanvas = ({ canvasRoomId }: MultiCanvasProps) => {
       }));
     });
 
+    socket.on("disconnect", () => {
+      console.log("Disconnected from the server");
+    });
+
+    socket.on("room-deleted", (roomId : any) => {
+      if (roomId === canvasRoomId) {
+        alert("The room has been deleted because all users left.");
+        // Optionally, navigate the user to a different page or reset state
+      }
+    });
+    
+
     socket.on("delete-canvas", (canvasId: string) => {
       setCanvases((prevCanvases) => prevCanvases.filter((canvas) => canvas.id !== canvasId));
       setCanvasHistory((prevHistory) => {
