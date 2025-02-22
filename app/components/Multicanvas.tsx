@@ -2,14 +2,19 @@
 
 import { useEffect, useRef, useState, MouseEvent } from "react";
 import io from "socket.io-client";
+import { Socket } from "socket.io-client";
 
-let socket: any;
+interface MultiCanvasProps {
+  canvasRoomId: string;
+}
+
 
 interface MultiCanvasProps {
   canvasRoomId: string;
 }
 
 const MultiCanvas = ({ canvasRoomId }: MultiCanvasProps) => {
+  const socketRef = useRef<typeof Socket | null>(null);
   const canvasRefs = useRef<{ [id: string]: HTMLCanvasElement | null }>({});
   const [canvases, setCanvases] = useState<{ id: string }[]>([]);
   const [canvasHistory, setCanvasHistory] = useState<{ [id: string]: any[] }>({});
@@ -25,17 +30,16 @@ const MultiCanvas = ({ canvasRoomId }: MultiCanvasProps) => {
     offsetX: number;
     offsetY: number;
   } | null>(null);
+
   const [eraserMode, setEraserMode] = useState(false);
-
-
   useEffect(() => {
-    socket = io("https://bad-kathy-chekuri-96c250bc.koyeb.app/");
+    socketRef.current = io("https://bad-kathy-chekuri-96c250bc.koyeb.app/");
 
-    socket.on("connect", () => {
-      socket.emit("join-room", canvasRoomId);
+    socketRef.current.on("connect", () => {
+      socketRef.current?.emit("join-room", canvasRoomId);
     });
 
-    socket.on("load-room-canvases", (canvasData: any) => {
+    socketRef.current.on("load-room-canvases", (canvasData: any) => {
       setCanvases((prevCanvases) => {
         const newCanvases = canvasData.filter(
           (canvas: any) => !prevCanvases.some((c) => c.id === canvas.id)
@@ -55,7 +59,7 @@ const MultiCanvas = ({ canvasRoomId }: MultiCanvasProps) => {
       });
     });
 
-    socket.on("new-canvas", (newCanvas: any) => {
+    socketRef.current.on("new-canvas", (newCanvas: any) => {
       setCanvases((prevCanvases) => {
         if (!prevCanvases.some((c) => c.id === newCanvas.id)) {
           setCanvasHistory((prevHistory) => ({
@@ -72,7 +76,7 @@ const MultiCanvas = ({ canvasRoomId }: MultiCanvasProps) => {
       });
     });
 
-    socket.on("draw", (data: any) => {
+    socketRef.current.on("draw", (data: any) => {
       const { canvasId, drawing, eraserMode } = data;
     
       if (eraserMode) {
@@ -100,14 +104,14 @@ const MultiCanvas = ({ canvasRoomId }: MultiCanvasProps) => {
     });
     
 
-    socket.on("text-update", ({ canvasId, textAreas }: any) => {
+    socketRef.current.on("text-update", ({ canvasId, textAreas }: any) => {
       setTextAreas((prevAreas) => ({
         ...prevAreas,
         [canvasId]: textAreas,
       }));
     });
 
-    socket.on("clear-canvas", (data: any) => {
+    socketRef.current.on("clear-canvas", (data: any) => {
       const { canvasId } = data;
       const canvas = canvasRefs.current[canvasId];
       const context = canvas?.getContext("2d");
@@ -124,11 +128,11 @@ const MultiCanvas = ({ canvasRoomId }: MultiCanvasProps) => {
       }));
     });
 
-    socket.on("disconnect", () => {
+    socketRef.current.on("disconnect", () => {
       console.log("Disconnected from the server");
     });
 
-    socket.on("room-deleted", (roomId : any) => {
+    socketRef.current.on("room-deleted", (roomId : any) => {
       if (roomId === canvasRoomId) {
         alert("The room has been deleted because all users left.");
         // Optionally, navigate the user to a different page or reset state
@@ -136,7 +140,7 @@ const MultiCanvas = ({ canvasRoomId }: MultiCanvasProps) => {
     });
     
 
-    socket.on("delete-canvas", (canvasId: string) => {
+    socketRef.current.on("delete-canvas", (canvasId: string) => {
       setCanvases((prevCanvases) => prevCanvases.filter((canvas) => canvas.id !== canvasId));
       setCanvasHistory((prevHistory) => {
         const updatedHistory = { ...prevHistory };
@@ -151,12 +155,12 @@ const MultiCanvas = ({ canvasRoomId }: MultiCanvasProps) => {
     });
 
     return () => {
-      socket?.off("draw");
-      socket?.off("text-update");
-      socket?.off("new-canvas");
-      socket?.off("clear-canvas");
-      socket?.off("delete-canvas");
-      socket?.off("load-room-canvases");
+      socketRef.current?.off("draw");
+      socketRef.current?.off("text-update");
+      socketRef.current?.off("new-canvas");
+      socketRef.current?.off("clear-canvas");
+      socketRef.current?.off("delete-canvas");
+      socketRef.current?.off("load-room-canvases");
     };
   }, [canvasRoomId]);
 
@@ -251,7 +255,7 @@ const MultiCanvas = ({ canvasRoomId }: MultiCanvasProps) => {
     context.stroke();
   
     if (emit) {
-      socket.emit("draw", {
+      socketRef.current?.emit("draw", {
         canvasId,
         drawing: {
           x0,
@@ -284,7 +288,7 @@ const MultiCanvas = ({ canvasRoomId }: MultiCanvasProps) => {
         [canvasId]: [...(prevAreas[canvasId] || []), newTextArea],
       };
 
-      socket.emit("text-update", { canvasId, textAreas: updatedAreas[canvasId], roomId: canvasRoomId });
+      socketRef.current?.emit("text-update", { canvasId, textAreas: updatedAreas[canvasId], roomId: canvasRoomId });
       return updatedAreas;
     });
   };
@@ -299,7 +303,7 @@ const MultiCanvas = ({ canvasRoomId }: MultiCanvasProps) => {
       };
   
       // Emit updated text areas to other users
-      socket.emit("text-update", { canvasId, textAreas: updatedAreas[canvasId], roomId: canvasRoomId });
+      socketRef.current?.emit("text-update", { canvasId, textAreas: updatedAreas[canvasId], roomId: canvasRoomId });
       return updatedAreas;
     });
   };
@@ -335,7 +339,7 @@ const MultiCanvas = ({ canvasRoomId }: MultiCanvasProps) => {
       };
   
       // Emit the updated text position to the server
-      socket.emit("text-update", { canvasId, textAreas: updatedAreas[canvasId], roomId: canvasRoomId });
+      socketRef.current?.emit("text-update", { canvasId, textAreas: updatedAreas[canvasId], roomId: canvasRoomId });
       return updatedAreas;
     });
   };
@@ -360,7 +364,7 @@ const MultiCanvas = ({ canvasRoomId }: MultiCanvasProps) => {
         ...prevAreas,
         [canvasId]: [],
       }));
-      socket.emit("clear-canvas", { canvasId, roomId: canvasRoomId });
+      socketRef.current?.emit("clear-canvas", { canvasId, roomId: canvasRoomId });
     }
   };
 
@@ -376,12 +380,12 @@ const MultiCanvas = ({ canvasRoomId }: MultiCanvasProps) => {
       delete updatedAreas[canvasId];
       return updatedAreas;
     });
-    socket.emit("delete-canvas", { canvasId, roomId: canvasRoomId });
+    socketRef.current?.emit("delete-canvas", { canvasId, roomId: canvasRoomId });
   };
 
   const addNewCanvas = () => {
     const newCanvasId = `canvas-${Date.now()}`;
-    socket.emit("new-canvas", { roomId: canvasRoomId, id: newCanvasId });
+    socketRef.current?.emit("new-canvas", { roomId: canvasRoomId, id: newCanvasId });
   };
 
   const deleteTextArea = (canvasId: string, textId: string) => {
@@ -392,7 +396,7 @@ const MultiCanvas = ({ canvasRoomId }: MultiCanvasProps) => {
       };
   
       // Emit the updated text areas to other users
-      socket.emit("text-update", { canvasId, textAreas: updatedAreas[canvasId], roomId: canvasRoomId });
+      socketRef.current?.emit("text-update", { canvasId, textAreas: updatedAreas[canvasId], roomId: canvasRoomId });
       return updatedAreas;
     });
   };
