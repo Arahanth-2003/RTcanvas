@@ -29,7 +29,7 @@ const MultiCanvas = ({ canvasRoomId }: MultiCanvasProps) => {
 
 
   useEffect(() => {
-    socket = io("http://localhost:4000");
+    socket = io("https://bad-kathy-chekuri-96c250bc.koyeb.app/");
 
     socket.on("connect", () => {
       socket.emit("join-room", canvasRoomId);
@@ -384,6 +384,19 @@ const MultiCanvas = ({ canvasRoomId }: MultiCanvasProps) => {
     socket.emit("new-canvas", { roomId: canvasRoomId, id: newCanvasId });
   };
 
+  const deleteTextArea = (canvasId: string, textId: string) => {
+    setTextAreas((prevAreas) => {
+      const updatedAreas = {
+        ...prevAreas,
+        [canvasId]: prevAreas[canvasId].filter((area: any) => area.id !== textId),
+      };
+  
+      // Emit the updated text areas to other users
+      socket.emit("text-update", { canvasId, textAreas: updatedAreas[canvasId], roomId: canvasRoomId });
+      return updatedAreas;
+    });
+  };
+  
   return (
     <div
       className="flex flex-col items-center bg-gray-100 min-h-screen py-8"
@@ -392,11 +405,16 @@ const MultiCanvas = ({ canvasRoomId }: MultiCanvasProps) => {
     >
       {/* Control Panel */}
       <div className="fixed top-4 left-4 flex space-x-4 bg-white p-4 rounded-lg shadow-lg z-10">
+        {/* Add Canvas Button */}
         <button
           onClick={addNewCanvas}
           className="bg-blue-600 hover:bg-blue-700 text-white font-semibold px-4 py-2 rounded-lg transition"
         >
-          Add Canvas
+        <img
+          src="/add.png"
+          alt="Add Canvas"
+          className="w-6 h-6"
+        />
         </button>
         <div className="flex items-center space-x-2">
           <label htmlFor="color-picker" className="text-gray-700 font-semibold">
@@ -426,13 +444,18 @@ const MultiCanvas = ({ canvasRoomId }: MultiCanvasProps) => {
             disabled={eraserMode} // Disable width picker in eraser mode
           />
         </div>
+        {/* Enable Eraser Button */}
         <button
           onClick={() => setEraserMode((prev) => !prev)}
           className={`${
-            eraserMode ? "bg-red-600 hover:bg-red-700" : "bg-gray-600 hover:bg-gray-700"
+            eraserMode ? "bg-red-700" : "bg-green-600"
           } text-white font-semibold px-4 py-2 rounded-lg transition`}
         >
-          {eraserMode ? "Disable Eraser" : "Enable Eraser"}
+          <img
+            src={eraserMode ? "/rubber.png" : "/rubber.png"}
+            alt={eraserMode ? "Disable Eraser" : "Enable Eraser"}
+            className="w-6 h-6"
+          />
         </button>
         {!eraserMode && (
           <input
@@ -463,27 +486,42 @@ const MultiCanvas = ({ canvasRoomId }: MultiCanvasProps) => {
             className="p-4 bg-white rounded-lg shadow-lg relative"
           >
             <div className="flex justify-between mb-4">
+              {/* Clear Canvas Button */}
               <button
                 className="bg-red-500 hover:bg-red-600 text-white font-semibold px-4 py-2 rounded-lg transition"
                 onClick={() => clearCanvas(canvas.id)}
               >
-                Clear
+                <img
+                  src="/clear.png"
+                  alt="Clear Canvas"
+                  className="w-6 h-6"
+                />
               </button>
+              {/* Delete Canvas Button */}
               <button
                 className="bg-gray-500 hover:bg-gray-600 text-white font-semibold px-4 py-2 rounded-lg transition"
                 onClick={() => deleteCanvas(canvas.id)}
               >
-                Delete
+                <img
+                  src="/delete.png"
+                  alt="Delete Canvas"
+                  className="w-6 h-6"
+                />
               </button>
+              {/* Add Text Button */}
               <button
                 className="bg-green-500 hover:bg-green-600 text-white font-semibold px-4 py-2 rounded-lg transition"
                 onClick={() => addTextArea(canvas.id)}
               >
-                Add Text
+                <img
+                  src="/add _text.png"
+                  alt="Add Text"
+                  className="w-6 h-6"
+                />
               </button>
             </div>
             <canvas
-              ref={(el) => {
+              ref={(el : any) => {
                 canvasRefs.current[canvas.id] = el;
               }}
               onMouseDown={(e) => handleMouseDown(e, canvas.id)}
@@ -491,45 +529,78 @@ const MultiCanvas = ({ canvasRoomId }: MultiCanvasProps) => {
               onMouseUp={(e) => handleMouseUp(e, canvas.id)}
               width={800}
               height={600}
-              className="border-2 border-gray-300 rounded-lg bg-white shadow-md cursor-crosshair"
-            />
-            {textAreas[canvas.id]?.map((textArea) => (
-              <textarea
-              key={textArea.id}
+              className="border-2 border-gray-300 rounded-lg bg-white shadow-md"
               style={{
-                position: "absolute",
-                top: textArea.y,
-                left: textArea.x,
-                width: `${textArea.width}px`,
-                height: `${textArea.height}px`,
-                resize: "both", // Enable resizing
-                zIndex: 10,
-                backgroundColor: "#ffffff",
-                border: "1px solid #ccc",
-                overflow: "auto",
+                cursor: eraserMode
+                ? `url('/eraser.png') 16 16, auto`
+                : `url('/small_paint-brush.png') 16 16 auto`, // Custom cursor PNG
               }}
-              className="p-2 rounded-md"
-              value={textArea.value}
-              onChange={(e) =>
-                updateTextArea(canvas.id, textArea.id, "value", e.target.value)
-              }
-              onMouseDown={(e) => {
-                const rect = e.currentTarget.getBoundingClientRect();
-                const isResizeCorner =
-                  rect.width - (e.clientX - rect.left) < 10 &&
-                  rect.height - (e.clientY - rect.top) < 10;
-            
-                if (!isResizeCorner) {
-                  handleTextMouseDown(e, canvas.id, textArea.id);
-                }
-              }}
-              onBlur={(e) => {
-                const element = e.target as HTMLTextAreaElement; // Explicit cast
-                updateTextArea(canvas.id, textArea.id, "width", element.offsetWidth);
-                updateTextArea(canvas.id, textArea.id, "height", element.offsetHeight);
-              }}
-            />            
-            ))}
+            />
+            { textAreas[canvas.id]?.map((textArea) => (
+                <div
+                  key={textArea.id}
+                  style={{
+                    position: "absolute",
+                    top: textArea.y,
+                    left: textArea.x,
+                    width: `${textArea.width}px`,
+                    height: `${textArea.height}px`,
+                    zIndex: 10,
+                  }}
+                >
+                  <textarea
+                    style={{
+                      width: "100%",
+                      height: "100%",
+                      resize: "both",
+                      backgroundColor: "#ffffff",
+                      border: "1px solid #ccc",
+                      overflow: "auto",
+                      padding: "8px",
+                      borderRadius: "4px",
+                    }}
+                    className="shadow-md"
+                    value={textArea.value}
+                    onChange={(e) =>
+                      updateTextArea(canvas.id, textArea.id, "value", e.target.value)
+                    }
+                    onMouseDown={(e) => {
+                      const rect = e.currentTarget.getBoundingClientRect();
+                      const isResizeCorner =
+                        rect.width - (e.clientX - rect.left) < 10 &&
+                        rect.height - (e.clientY - rect.top) < 10;
+
+                      if (!isResizeCorner) {
+                        handleTextMouseDown(e, canvas.id, textArea.id);
+                      }
+                    }}
+                    onBlur={(e) => {
+                      const element = e.target as HTMLTextAreaElement; // Explicit cast
+                      updateTextArea(canvas.id, textArea.id, "width", element.offsetWidth);
+                      updateTextArea(canvas.id, textArea.id, "height", element.offsetHeight);
+                    }}
+                  />
+                  <button
+                    style={{
+                      position: "absolute",
+                      top: -10,
+                      right: -10,
+                      backgroundColor: "#ff5f5f",
+                      color: "#fff",
+                      border: "none",
+                      borderRadius: "50%",
+                      width: "24px",
+                      height: "24px",
+                      fontSize: "14px",
+                      cursor: "pointer",
+                    }}
+                    onClick={() => deleteTextArea(canvas.id, textArea.id)}
+                  >
+                    ×
+                  </button>
+                </div>
+              ))}
+
           </div>
         ))}
       </div>
