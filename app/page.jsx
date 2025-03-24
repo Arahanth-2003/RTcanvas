@@ -11,7 +11,7 @@ export default function Home() {
 
   return (
     <div className="bg-white text-black flex flex-col items-center justify-center h-screen">
-      <h1 className="text-2xl mb-4">Welcome to the Collaborative Canvas</h1>
+      <h1 className="text-2xl mb-4">Welcome to the Collaborative Canvas (Only for laptops and PC's) </h1>
       <Link href={`/canvas/${generateCanvasId()}`}>
         <button className="bg-blue-500 text-white px-4 py-2 rounded">
           Create New Canvas

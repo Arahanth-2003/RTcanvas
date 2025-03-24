@@ -531,14 +531,9 @@ const MultiCanvas = ({ canvasRoomId }: MultiCanvasProps) => {
               onMouseDown={(e) => handleMouseDown(e, canvas.id)}
               onMouseMove={(e) => handleMouseMove(e, canvas.id)}
               onMouseUp={(e) => handleMouseUp(e, canvas.id)}
-              width={800}
+              width={990}
               height={600}
               className="border-2 border-gray-300 rounded-lg bg-white shadow-md"
-              style={{
-                cursor: eraserMode
-                ? `url('/eraser.png') 16 16, auto`
-                : `url('/small_paint-brush.png') 16 16 auto`, // Custom cursor PNG
-              }}
             />
             { textAreas[canvas.id]?.map((textArea) => (
                 <div
